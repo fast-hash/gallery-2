@@ -12,7 +12,14 @@ from .ui.gallery_view import GalleryView
 def main(page: ft.Page) -> None:
     page.title = "Smart Gallery"
     page.padding = 12
-    page.theme_mode = ft.ThemeMode.SYSTEM
+    page.theme_mode = ft.ThemeMode.DARK
+    page.theme = ft.Theme(
+        color_scheme_seed="#82b1ff",
+        scaffold_background_color="#1a1c1e",
+        card_color=ft.colors.with_opacity(0.08, ft.colors.ON_SURFACE),
+        use_material3=True,
+    )
+    page.bgcolor = "#1a1c1e"
     page.vertical_alignment = ft.MainAxisAlignment.START
 
     database = Database()

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 import flet as ft
+from flet import colors
 
 
 def tag_chip(label: str) -> ft.Chip:
-    return ft.Chip(label=ft.Text(label), bgcolor=ft.colors.PRIMARY_CONTAINER)
+    return ft.Chip(
+        label=ft.Text(label, color=colors.ON_PRIMARY_CONTAINER, size=11),
+        bgcolor=colors.SURFACE_VARIANT,
+        padding=6,
+        shape=ft.StadiumBorder(),
+    )
 
 
 def info_snackbar(message: str) -> ft.SnackBar:
@@ -32,19 +40,68 @@ def empty_state(message: str = "No images yet") -> ft.Container:
     )
 
 
-def image_card(image_src: str, description: str, tags: list[str]) -> ft.Container:
-    return ft.Container(
+def image_card(
+    image_src: str,
+    description: str,
+    tags: list[str],
+    on_open: Callable[[ft.ControlEvent], None] | None = None,
+    on_edit: Callable[[ft.ControlEvent], None] | None = None,
+) -> ft.Container:
+    """Card layout used in the gallery grid."""
+
+    edit_button = ft.Container(
+        content=ft.IconButton(
+            icon=ft.icons.EDIT_OUTLINED,
+            icon_color=colors.ON_SURFACE_VARIANT,
+            tooltip="Edit",
+            on_click=on_edit,
+        ),
+        alignment=ft.alignment.top_right,
+        padding=6,
+    )
+
+    image = ft.Container(
+        content=ft.Image(
+            src=image_src,
+            width=280,
+            height=220,
+            fit=ft.ImageFit.COVER,
+            cache_width=300,
+            border_radius=12,
+        ),
         border_radius=12,
-        bgcolor=ft.colors.SURFACE_VARIANT,
-        padding=8,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        bgcolor=colors.with_opacity(0.08, colors.ON_SURFACE),
+    )
+
+    return ft.Container(
+        on_click=on_open,
+        ink=True,
+        border_radius=16,
+        padding=12,
+        bgcolor=colors.with_opacity(0.04, colors.ON_SURFACE),
+        shadow=ft.BoxShadow(
+            spread_radius=1,
+            blur_radius=10,
+            color=colors.with_opacity(0.2, colors.BLACK),
+        ),
         content=ft.Column(
-            [
-                ft.Image(src=image_src, width=220, height=220, fit=ft.ImageFit.COVER),
-                ft.Text(description, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                ft.Row([
-                    tag_chip(tag) for tag in tags[:4]
-                ], wrap=True, spacing=4, run_spacing=4),
+            spacing=10,
+            controls=[
+                ft.Stack(controls=[image, edit_button]),
+                ft.Text(
+                    description or "No description",
+                    size=13,
+                    weight=ft.FontWeight.W_600,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    color=colors.ON_SURFACE,
+                ),
+                ft.Wrap(
+                    spacing=6,
+                    run_spacing=6,
+                    controls=[tag_chip(tag) for tag in tags[:6]] or [tag_chip("Untagged")],
+                ),
             ],
-            spacing=8,
         ),
     )
