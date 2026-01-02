@@ -148,3 +148,55 @@ class Database:
                 (image_id,),
             ).fetchall()
         return [row["name"] for row in rows]
+
+    def clear_tags(self, image_id: int) -> None:
+        """Remove all tag associations for an image to allow overwriting."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM image_tags WHERE image_id = ?;", (image_id,))
+
+    def get_image_details(self, image_id: int) -> dict | None:
+        """Return a single image row along with its tags."""
+        with self._connect() as conn:
+            image_row = conn.execute(
+                """
+                SELECT id, path, description, processed_flag, created_at
+                FROM images
+                WHERE id = ?;
+                """,
+                (image_id,),
+            ).fetchone()
+            if not image_row:
+                return None
+
+            tags = conn.execute(
+                """
+                SELECT t.name
+                FROM tags t
+                JOIN image_tags it ON it.tag_id = t.id
+                WHERE it.image_id = ?
+                ORDER BY t.name ASC;
+                """,
+                (image_id,),
+            ).fetchall()
+
+        details = dict(image_row)
+        details["tags"] = [row["name"] for row in tags]
+        return details
+
+    def search_images(self, query: str, limit: int = 100, offset: int = 0) -> List[dict]:
+        """Search images by description or tag name using a LIKE pattern."""
+        pattern = f"%{query.strip()}%"
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT i.id, i.path, i.description, i.processed_flag, i.created_at
+                FROM images i
+                LEFT JOIN image_tags it ON i.id = it.image_id
+                LEFT JOIN tags t ON t.id = it.tag_id
+                WHERE i.description LIKE ? OR t.name LIKE ?
+                ORDER BY i.created_at DESC
+                LIMIT ? OFFSET ?;
+                """,
+                (pattern, pattern, limit, offset),
+            ).fetchall()
+        return [dict(row) for row in rows]
