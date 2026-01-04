@@ -122,13 +122,17 @@ class Database:
                 [(image_id, tag_id) for tag_id in ids],
             )
 
-    def get_images(self, limit: int = 100, offset: int = 0) -> List[dict]:
+    def _normalize_sort_order(self, order: str) -> str:
+        return "ASC" if order and order.lower().startswith("asc") else "DESC"
+
+    def get_images(self, limit: int = 100, offset: int = 0, order: str = "desc") -> List[dict]:
+        sort_order = self._normalize_sort_order(order)
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT id, path, description, processed_flag, created_at
                 FROM images
-                ORDER BY created_at DESC
+                ORDER BY created_at {sort_order}
                 LIMIT ? OFFSET ?;
                 """,
                 (limit, offset),
@@ -183,18 +187,21 @@ class Database:
         details["tags"] = [row["name"] for row in tags]
         return details
 
-    def search_images(self, query: str, limit: int = 100, offset: int = 0) -> List[dict]:
+    def search_images(
+        self, query: str, limit: int = 100, offset: int = 0, order: str = "desc"
+    ) -> List[dict]:
         """Search images by description or tag name using a LIKE pattern."""
         pattern = f"%{query.strip()}%"
+        sort_order = self._normalize_sort_order(order)
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT DISTINCT i.id, i.path, i.description, i.processed_flag, i.created_at
                 FROM images i
                 LEFT JOIN image_tags it ON i.id = it.image_id
                 LEFT JOIN tags t ON t.id = it.tag_id
                 WHERE i.description LIKE ? OR t.name LIKE ?
-                ORDER BY i.created_at DESC
+                ORDER BY i.created_at {sort_order}
                 LIMIT ? OFFSET ?;
                 """,
                 (pattern, pattern, limit, offset),

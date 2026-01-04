@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 import flet as ft
 
@@ -22,12 +22,13 @@ class GalleryView(ft.UserControl):
         self.ai_engine = ai_engine
         self.grid = ft.GridView(
             expand=True,
-            runs_count=2,
-            max_extent=260,
+            runs_count=0,
+            max_extent=280,
             child_aspect_ratio=0.78,
             spacing=12,
             run_spacing=12,
         )
+        self.folder_list = ft.Column(spacing=16, expand=True)
         self.file_picker = ft.FilePicker(on_result=self._handle_file_picker_result)
         self.page: Optional[ft.Page] = None
         self.search_field = ft.TextField(
@@ -39,17 +40,53 @@ class GalleryView(ft.UserControl):
             autofocus=False,
             on_change=self._handle_search_change,
         )
+        self.sort_dropdown = ft.Dropdown(
+            width=190,
+            dense=True,
+            value="desc",
+            filled=True,
+            border_radius=14,
+            options=[
+                ft.dropdown.Option("desc", "Newest first"),
+                ft.dropdown.Option("asc", "Oldest first"),
+            ],
+            on_change=self._handle_sort_change,
+        )
+        self.view_tabs = ft.Tabs(
+            selected_index=0,
+            animation_duration=150,
+            expand=True,
+            tabs=[
+                ft.Tab(text="All photos", icon=ft.icons.GRID_VIEW, content=self.grid),
+                ft.Tab(
+                    text="By folder",
+                    icon=ft.icons.FOLDER_OPEN,
+                    content=ft.Container(content=self.folder_list, padding=ft.padding.only(top=8), expand=True),
+                ),
+            ],
+            on_change=self._handle_tab_change,
+        )
 
     def build(self) -> ft.Column:
         search_bar = ft.Container(
             bgcolor=ft.colors.with_opacity(0.06, ft.colors.ON_SURFACE),
             border_radius=14,
             padding=8,
+            expand=True,
             content=self.search_field,
+            col={"xs": 12, "sm": 12, "md": 8},
+        )
+
+        self.sort_dropdown.col = {"xs": 12, "sm": 12, "md": 4}
+
+        controls = ft.ResponsiveRow(
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[search_bar, self.sort_dropdown],
         )
 
         return ft.Column(
-            [search_bar, self.grid],
+            [controls, self.view_tabs],
             expand=True,
             spacing=12,
         )
@@ -68,28 +105,11 @@ class GalleryView(ft.UserControl):
         self.refresh_gallery()
 
     def refresh_gallery(self) -> None:
-        query = (self.search_field.value or "").strip()
-        images = (
-            self.database.search_images(query=query, limit=200) if query else self.database.get_images(limit=200)
-        )
-        if not images:
-            self.grid.controls = [
-                empty_state("No images match your search" if query else "No images yet")
-            ]
+        images = self._fetch_images()
+        if self.view_tabs.selected_index == 0:
+            self._render_all_images(images)
         else:
-            cards = []
-            for image in images:
-                tags = self.database.get_tags_for_image(image_id=int(image["id"]))
-                cards.append(
-                    image_card(
-                        image_src=str(image["path"]),
-                        description=image.get("description", ""),
-                        tags=tags,
-                        on_open=lambda _, image_id=image["id"]: self._open_details(image_id),
-                        on_edit=lambda _, image_id=image["id"]: self._open_details(image_id),
-                    )
-                )
-            self.grid.controls = cards
+            self._render_folder_groups(images)
         self.update()
 
     def _handle_file_picker_result(self, event: ft.FilePickerResultEvent) -> None:
@@ -123,6 +143,12 @@ class GalleryView(ft.UserControl):
     def _handle_search_change(self, event: ft.ControlEvent) -> None:
         self.refresh_gallery()
 
+    def _handle_sort_change(self, event: ft.ControlEvent) -> None:
+        self.refresh_gallery()
+
+    def _handle_tab_change(self, event: ft.ControlEvent) -> None:
+        self.refresh_gallery()
+
     def _open_details(self, image_id: int) -> None:
         if not self.page:
             return
@@ -132,3 +158,86 @@ class GalleryView(ft.UserControl):
             image_id=image_id,
             on_saved=self.refresh_gallery,
         )
+
+    def _current_sort_order(self) -> str:
+        return "asc" if (self.sort_dropdown.value or "").startswith("asc") else "desc"
+
+    def _fetch_images(self) -> List[dict]:
+        query = (self.search_field.value or "").strip()
+        sort_order = self._current_sort_order()
+        return (
+            self.database.search_images(query=query, limit=200, order=sort_order)
+            if query
+            else self.database.get_images(limit=200, order=sort_order)
+        )
+
+    def _render_all_images(self, images: List[dict]) -> None:
+        if not images:
+            self.grid.controls = [
+                empty_state("No images match your search" if (self.search_field.value or "").strip() else "No images yet")
+            ]
+            return
+
+        cards = []
+        for image in images:
+            tags = self.database.get_tags_for_image(image_id=int(image["id"]))
+            cards.append(
+                image_card(
+                    image_src=str(image["path"]),
+                    description=image.get("description", ""),
+                    tags=tags,
+                    on_open=lambda _, image_id=image["id"]: self._open_details(image_id),
+                    on_edit=lambda _, image_id=image["id"]: self._open_details(image_id),
+                )
+            )
+        self.grid.controls = cards
+
+    def _render_folder_groups(self, images: List[dict]) -> None:
+        if not images:
+            self.folder_list.controls = [
+                empty_state("No images match your search" if (self.search_field.value or "").strip() else "No images yet")
+            ]
+            return
+
+        grouped: Dict[str, list[dict]] = {}
+        for image in images:
+            folder_name = Path(image["path"]).parent.name or "Uncategorized"
+            grouped.setdefault(folder_name, []).append(image)
+
+        sections: list[ft.Control] = []
+        for folder_name in sorted(grouped.keys()):
+            folder_images = grouped[folder_name]
+            grid = ft.Wrap(
+                spacing=12,
+                run_spacing=12,
+                controls=[
+                    image_card(
+                        image_src=str(img["path"]),
+                        description=img.get("description", ""),
+                        tags=self.database.get_tags_for_image(image_id=int(img["id"])),
+                        on_open=lambda _, image_id=img["id"]: self._open_details(image_id),
+                        on_edit=lambda _, image_id=img["id"]: self._open_details(image_id),
+                    )
+                    for img in folder_images
+                ],
+            )
+            sections.append(
+                ft.Column(
+                    spacing=10,
+                    controls=[
+                        ft.Row(
+                            controls=[
+                                ft.Icon(ft.icons.FOLDER_OUTLINED, color=ft.colors.ON_SURFACE_VARIANT),
+                                ft.Text(folder_name, size=15, weight=ft.FontWeight.BOLD),
+                                ft.Text(f"{len(folder_images)}", color=ft.colors.ON_SURFACE_VARIANT),
+                            ],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        grid,
+                        ft.Divider(height=1),
+                    ],
+                )
+            )
+
+        self.folder_list.controls = sections
